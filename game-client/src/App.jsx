@@ -3,7 +3,7 @@ import { io } from 'socket.io-client';
 import { ReactSketchCanvas } from 'react-sketch-canvas';
 
 // ⚠️ تذكر: ضع رابط Render الخاص بك هنا بدل localhost لاحقاً
-const socket = io('http://localhost:3001');
+const socket = io('https://your-server-name.onrender.com');
 
 function App() {
   const [phase, setPhase] = useState('login'); 
