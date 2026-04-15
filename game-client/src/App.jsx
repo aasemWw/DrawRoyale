@@ -1,20 +1,25 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
+import { ReactSketchCanvas } from 'react-sketch-canvas';
 
-// استبدل هذا الرابط برابط Render لاحقاً
+// ⚠️ تذكر: ضع رابط Render الخاص بك هنا بدل localhost لاحقاً
 const socket = io('http://localhost:3001');
 
 function App() {
-  const [phase, setPhase] = useState('login'); // login, lobby, drawing, voting
+  const [phase, setPhase] = useState('login'); 
   const [room, setRoom] = useState('');
   const [name, setName] = useState('');
   const [players, setPlayers] = useState([]);
+  
+  // إعدادات لوحة الرسم
+  const canvasRef = useRef(null);
+  const [strokeColor, setStrokeColor] = useState('#000000');
+  const [strokeWidth, setStrokeWidth] = useState(4);
 
   useEffect(() => {
     socket.on('update_players', (playersList) => setPlayers(playersList));
     socket.on('game_started', () => setPhase('drawing'));
     socket.on('start_voting', (drawings) => {
-      console.log('بدأ التصويت على:', drawings);
       setPhase('voting');
     });
 
@@ -28,44 +33,92 @@ function App() {
 
   const startGame = () => socket.emit('start_game', room);
 
+  // دالة إرسال الرسمة
   const submitDrawing = () => {
-    // هنا ترسل الصورة كـ Base64 من لوحة الرسم
-    socket.emit('submit_drawing', { roomId: room, drawingData: 'BASE_64_IMAGE_STRING' });
+    if (!canvasRef.current) return;
+    
+    // تحويل الرسمة إلى صورة (Base64)
+    canvasRef.current.exportImage("png")
+      .then(data => {
+        console.log("تم تحويل الرسمة بنجاح!");
+        // إرسال الصورة للسيرفر
+        socket.emit('submit_drawing', { roomId: room, drawingData: data });
+        setPhase('waiting_others'); // تغيير الشاشة لينتظر باقي اللاعبين
+      })
+      .catch(e => console.error("حدث خطأ أثناء حفظ الرسمة", e));
   };
 
+  // دوال مساعدة للوحة الرسم
+  const clearCanvas = () => canvasRef.current?.clearCanvas();
+  const undoCanvas = () => canvasRef.current?.undo();
+
   return (
-    <div style={{ padding: '20px', fontFamily: 'Arial' }}>
-      <h1>لعبة الرسم 🎨</h1>
+    <div style={{ padding: '20px', fontFamily: 'Arial', maxWidth: '600px', margin: '0 auto' }}>
+      <h1 style={{ textAlign: 'center' }}>لعبة الرسم 🎨</h1>
 
       {phase === 'login' && (
-        <div>
-          <input placeholder="اسمك" onChange={(e) => setName(e.target.value)} />
-          <input placeholder="رمز الغرفة" onChange={(e) => setRoom(e.target.value)} />
-          <button onClick={joinRoom}>دخول</button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          <input placeholder="اسمك" onChange={(e) => setName(e.target.value)} style={{ padding: '10px' }} />
+          <input placeholder="رمز الغرفة" onChange={(e) => setRoom(e.target.value)} style={{ padding: '10px' }} />
+          <button onClick={joinRoom} style={{ padding: '10px', cursor: 'pointer' }}>دخول</button>
         </div>
       )}
 
       {phase === 'lobby' && (
-        <div>
+        <div style={{ textAlign: 'center' }}>
           <h2>الغرفة: {room}</h2>
-          <ul>{players.map((p, i) => <li key={i}>{p.name}</li>)}</ul>
-          <button onClick={startGame}>بدأ اللعبة</button>
+          <h3>اللاعبون المتصلون:</h3>
+          <ul style={{ listStyle: 'none', padding: 0 }}>
+            {players.map((p, i) => <li key={i} style={{ fontSize: '20px', margin: '5px' }}>👤 {p.name}</li>)}
+          </ul>
+          <button onClick={startGame} style={{ padding: '10px 20px', fontSize: '18px', cursor: 'pointer' }}>بدأ اللعبة 🚀</button>
         </div>
       )}
 
       {phase === 'drawing' && (
-        <div>
-          <h2>وقت الرسم! ⏳</h2>
-          {/* هنا تضع مكون <ReactSketchCanvas /> */}
-          <div style={{ width: '300px', height: '300px', border: '1px solid black', margin: '10px 0' }}>
-            مساحة الرسم
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          <h2>ارسم الآن! ⏳</h2>
+          
+          {/* شريط الأدوات */}
+          <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', alignItems: 'center' }}>
+            <input type="color" value={strokeColor} onChange={(e) => setStrokeColor(e.target.value)} title="لون القلم" />
+            
+            <input 
+              type="range" min="1" max="20" value={strokeWidth} 
+              onChange={(e) => setStrokeWidth(parseInt(e.target.value))} title="حجم القلم" 
+            />
+            
+            <button onClick={undoCanvas}>تراجع ↩️</button>
+            <button onClick={clearCanvas}>مسح الكل 🗑️</button>
           </div>
-          <button onClick={submitDrawing}>إرسال الرسمة</button>
+
+          {/* لوحة الرسم */}
+          <div style={{ height: '400px', border: '3px solid #333', borderRadius: '10px', overflow: 'hidden' }}>
+            <ReactSketchCanvas
+              ref={canvasRef}
+              strokeWidth={strokeWidth}
+              strokeColor={strokeColor}
+              canvasColor="#ffffff"
+            />
+          </div>
+
+          <button onClick={submitDrawing} style={{ padding: '15px', backgroundColor: '#4CAF50', color: 'white', border: 'none', borderRadius: '5px', fontSize: '18px', cursor: 'pointer' }}>
+            اعتمد الرسمة ✅
+          </button>
+        </div>
+      )}
+
+      {phase === 'waiting_others' && (
+        <div style={{ textAlign: 'center', marginTop: '50px' }}>
+          <h2>تم استلام رسمتك! 🖼️</h2>
+          <p>ننتظر باقي اللاعبين لإنهاء رسوماتهم...</p>
         </div>
       )}
 
       {phase === 'voting' && (
-        <h2>مرحلة التصويت قيد التطوير...</h2>
+        <div style={{ textAlign: 'center' }}>
+          <h2>مرحلة التصويت ستبدأ قريباً! 🔥</h2>
+        </div>
       )}
     </div>
   );
